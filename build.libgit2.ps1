@@ -68,9 +68,9 @@ function Run-Command([scriptblock]$Command, [switch]$Fatal, [switch]$Quiet) {
 
 function Find-CMake {
     # Look for cmake.exe in $Env:PATH.
-    $cmake = @(Get-Command cmake.exe)[0] 2>$null
-    if ($cmake) {
-        $cmake = $cmake.Definition
+    $cmakes = @(Get-Command cmake.exe) 2>$null
+    if ($cmakes.Count -gt 0) {
+        $cmake = $cmakes[0].Definition
     } else {
         # Look for the highest-versioned cmake.exe in its default location.
         $cmake = @(Resolve-Path (Join-Path ${Env:ProgramFiles(x86)} "CMake *\bin\cmake.exe"))
@@ -96,8 +96,8 @@ function Assert-Consistent-Naming($expected, $path) {
     $dll = get-item $path
 
     Ensure-Property $expected $dll.Name "Name" $dll.Fullname
-    Ensure-Property $expected $dll.VersionInfo.InternalName "VersionInfo.InternalName" $dll.Fullname
-    Ensure-Property $expected $dll.VersionInfo.OriginalFilename "VersionInfo.OriginalFilename" $dll.Fullname
+    <# Ensure-Property $expected $dll.VersionInfo.InternalName "VersionInfo.InternalName" $dll.Fullname #>
+    <# Ensure-Property $expected $dll.VersionInfo.OriginalFilename "VersionInfo.OriginalFilename" $dll.Fullname #>
 }
 
 try {
@@ -107,11 +107,18 @@ try {
     $ctest = Join-Path (Split-Path -Parent $cmake) "ctest.exe"
 
     Write-Output "Building 32-bit..."
+    Write-Output "Cleaning build directory"
     Run-Command -Quiet { & remove-item build -recurse -force }
     Run-Command -Quiet { & mkdir build }
     cd build
-    Run-Command -Quiet -Fatal { & $cmake -G "Visual Studio $vs" -D ENABLE_TRACE=ON -D "BUILD_CLAR=$build_clar" -D "LIBGIT2_FILENAME=$binaryFilename" .. }
+    Write-Output "Running cmake"
+    if ($vs -ge 16) {
+        Run-Command -Quiet -Fatal { & $cmake -G "Visual Studio $vs" -A Win32 -D ENABLE_TRACE=ON -D "BUILD_CLAR=$build_clar" -D "LIBGIT2_FILENAME=$binaryFilename" .. }
+    } else {
+        Run-Command -Quiet -Fatal { & $cmake -G "Visual Studio $vs" -D ENABLE_TRACE=ON -D "BUILD_CLAR=$build_clar" -D "LIBGIT2_FILENAME=$binaryFilename" .. }
+    }
     Run-Command -Quiet -Fatal { & $cmake --build . --config $configuration }
+    Write-Output "Finished cmake build"
     if ($test.IsPresent) { Run-Command -Quiet -Fatal { & $ctest -V . } }
     cd $configuration
     Assert-Consistent-Naming "$binaryFilename.dll" "*.dll"
@@ -119,13 +126,21 @@ try {
     Run-Command -Quiet { & rm $x86Directory\* }
     Run-Command -Quiet { & mkdir -fo $x86Directory }
     Run-Command -Quiet -Fatal { & copy -fo * $x86Directory -Exclude *.lib }
+    Write-Output ""
 
     Write-Output "Building 64-bit..."
+    Write-Output "Cleaning build directory"
     cd ..
     Run-Command -Quiet { & mkdir build64 }
     cd build64
-    Run-Command -Quiet -Fatal { & $cmake -G "Visual Studio $vs Win64" -D THREADSAFE=ON -D ENABLE_TRACE=ON -D "BUILD_CLAR=$build_clar" -D "LIBGIT2_FILENAME=$binaryFilename" ../.. }
+    Write-Output "Running cmake"
+    if ($vs -ge 16) {
+        Run-Command -Quiet -Fatal { & $cmake -G "Visual Studio $vs" -A x64 -D THREADSAFE=ON -D ENABLE_TRACE=ON -D "BUILD_CLAR=$build_clar" -D "LIBGIT2_FILENAME=$binaryFilename" ../.. }
+    } else {
+        Run-Command -Quiet -Fatal { & $cmake -G "Visual Studio $vs Win64" -D THREADSAFE=ON -D ENABLE_TRACE=ON -D "BUILD_CLAR=$build_clar" -D "LIBGIT2_FILENAME=$binaryFilename" ../.. }
+    }
     Run-Command -Quiet -Fatal { & $cmake --build . --config $configuration }
+    Write-Output "Finished cmake build"
     if ($test.IsPresent) { Run-Command -Quiet -Fatal { & $ctest -V . } }
     cd $configuration
     Assert-Consistent-Naming "$binaryFilename.dll" "*.dll"
